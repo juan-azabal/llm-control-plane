@@ -11,9 +11,9 @@ An enterprise AI governance layer. It sits between your business teams and cloud
 The three open-source components are:
 - **LiteLLM** — API gateway, routing, budget enforcement, virtual keys
 - **NeMo Guardrails** — semantic policy engine (Colang 1.0 DSL, `self_check_input` rail)
-- **Ollama + Llama 3.2 3B** — local judge LLM (installed, ready; currently unused in MVP)
+- **Ollama + Llama 3.2 3B** — local judge LLM powering NeMo's `self_check_input` rail (zero marginal cost)
 
-**Current MVP judge:** gpt-4o-mini (OpenAI) powers the NeMo `self_check_input` rail. This was chosen for MVP to validate the full stack quickly. Ollama 3B is the target for production cost reduction — it's pre-installed and the switch is a one-line config change per `guardrails/*/config.yml`. See ADR-003.
+**Current judge:** Ollama + Llama 3.2 3B (local). Benchmark accuracy: engineering 100%/100% F1, marketing 100%/88.8%, support 100%/83.3%. See `tests/judge-benchmark/results.md` and ADR-003 for known edge cases.
 
 ---
 
@@ -21,7 +21,7 @@ The three open-source components are:
 
 These are non-negotiable. Violating them breaks the security model.
 
-1. **Sensitive data never reaches the cloud.** Layer 1 (deterministic) runs before NeMo. Only clean, scrubbed requests reach OpenAI.
+1. **Sensitive data never reaches the cloud.** Layer 1 (deterministic) scrubs secrets and PII before any cloud call. The NeMo judge (Ollama 3B) is local — it sees the cleaned prompt content but never forwards it externally.
 
 2. **Secrets detection runs before everything else.** In `litellm-config.yaml`, `secrets-detection` must appear before `nemo-guardrails` in the `guardrails:` list. LiteLLM processes them in order.
 
@@ -142,6 +142,8 @@ The 300-char length gate prevents false positives where a helpful LLM reply star
 
 ## Colang 1.0 Quick Reference
 
+> **Note:** The `.co` files in this project are reference documentation — they describe the intended policy in readable Colang syntax but are not executed as active rails in the MVP. See Stack Invariant #6. This reference is useful for understanding the `.co` files and for future activation when/if NeMo adds evaluator-mode flow execution.
+
 NeMo policy files use Colang 1.0 (`.co` files):
 
 ```colang
@@ -167,7 +169,7 @@ define bot refuse to discuss roadmap
 - `define bot <label>` — response template
 - `define subflow <name>` — reusable flow fragment
 
-The `config.yml` controls which rails run (input/output/retrieval) and which models power them.
+The active policy equivalent of the above lives in `prompts.yml` as a natural-language prompt passed to `self_check_input`. The `config.yml` controls which rails run (input/output/retrieval) and which models power them.
 
 ---
 
@@ -206,7 +208,18 @@ docker compose logs nemo --follow     # See which flows activated
 ### Check NeMo loaded configs
 
 ```bash
-curl http://localhost:8000/v1/rails/configs
+curl http://localhost:8001/v1/rails/configs
+```
+
+### NeMo shows empty configs `[]`
+
+This happens when NeMo starts before the `guardrails/` volume is mounted (e.g., first `docker compose up` after cloning). Fix:
+
+```bash
+docker compose restart nemo
+# Wait ~10s, then verify:
+curl http://localhost:8001/v1/rails/configs
+# Should return: [{"id":"marketing"}, {"id":"engineering"}, {"id":"support"}, ...]
 ```
 
 ### Regenerate tenant keys

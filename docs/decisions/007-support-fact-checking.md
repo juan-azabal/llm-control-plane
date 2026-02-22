@@ -22,9 +22,9 @@ Enable NeMo's `self_check_facts` output rail for the Support tenant. Maintain a 
 
 ## Trade-offs Accepted
 
-- **3B model fact-checking accuracy.** A 3B model comparing a response against a knowledge base will miss subtle inconsistencies and may also flag accurate responses. The accuracy degrades with complex multi-fact responses.
+- **Judge model accuracy.** The fact-checker's quality depends on the judge model. Llama 3.2 3B will miss subtle inconsistencies; gpt-4o-mini will be more reliable but adds cloud cost. The v2 implementation will use whatever judge model is active at the time (see trade-off matrix). The knowledge base scope is deliberately narrow to improve accuracy regardless of model.
 - **Knowledge base maintenance burden.** When the product changes, the KB must be updated. A stale KB is worse than no KB (the fact-checker will incorrectly flag accurate new features as hallucinations).
-- **Latency.** Fact-checking requires an additional LLM inference pass for every output. This adds 1–5 seconds.
+- **Latency.** Fact-checking requires an additional LLM inference pass for every output. This adds 1–5 seconds depending on the judge model.
 
 ## Alternative Considered
 

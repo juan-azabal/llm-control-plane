@@ -2,9 +2,9 @@
 
 An enterprise AI governance layer that routes, guards, and governs LLM usage across business teams — each with different risk profiles, budgets, and content policies.
 
-**Stack:** LiteLLM (gateway) · NeMo Guardrails (semantic rails) · gpt-4o-mini (judge, MVP) · Docker Compose
+**Stack:** LiteLLM (gateway) · NeMo Guardrails (semantic rails) · Ollama + Llama 3.2 3B (local judge) · Docker Compose
 
-> **MVP Note:** The judge model is currently gpt-4o-mini (fast, reliable for validating the stack). Ollama + Llama 3.2 3B is installed and ready — switching is a one-line config change. See [ADR-003](docs/decisions/003-local-judge-ollama.md) for the upgrade path.
+> **Local judge:** NeMo's semantic rails run against Ollama + Llama 3.2 3B — no data leaves the network for policy evaluation. Benchmark: engineering 100%, marketing 94.7% F1, support 90.8% F1. See [ADR-003](docs/decisions/003-local-judge-ollama.md).
 
 ---
 
@@ -33,12 +33,14 @@ docker compose up -d
 Wait ~60 seconds for all services to initialize, then:
 
 ```bash
-# Pull the local judge model (~2GB, one-time)
-bash scripts/init-ollama.sh
-
 # Create tenant teams + virtual keys
 bash scripts/setup-tenants.sh
 ```
+
+> **Required on first run:** Pull the Ollama judge model (~2GB, one-time):
+> ```bash
+> bash scripts/init-ollama.sh
+> ```
 
 ### 3. Run the test suite
 
@@ -105,7 +107,7 @@ All tests should pass. You'll see:
 | Tenant | Model | Budget | Topic Control | PII | Jailbreak |
 |--------|-------|--------|---------------|-----|-----------|
 | Marketing | gpt-4o-mini | $200/mo hard | Block-list (roadmap, financials, employees) | Strip silently | Semantic check |
-| Engineering | gpt-4o | $2000/mo soft | None (ADR-005) | Warn + allow | Heuristic only |
+| Engineering | gpt-4o | $2000/mo soft | None (ADR-005) | Warn + allow | Semantic check (lenient prompt) |
 | Support | gpt-4o-mini | $500/mo hard | Allow-list (product only) | Block hard | Full semantic |
 
 ---
@@ -139,26 +141,26 @@ curl -X POST http://localhost:8080/team/update \
 
 ### Upgrading the judge model
 
-**Switch from gpt-4o-mini to Ollama (cost reduction):**
+The current judge is **Ollama + Llama 3.2 3B** (local, zero marginal cost). Config in all `guardrails/*/config.yml`:
 
-In all `guardrails/*/config.yml` files, change:
+```yaml
+- type: self_check_input
+  engine: openai
+  model: llama3.2:3b
+  parameters:
+    base_url: "http://ollama:11434/v1"
+```
+
+To switch to a cloud judge (higher accuracy, adds API cost), replace with:
 ```yaml
 - type: self_check_input
   engine: openai
   model: gpt-4o-mini
 ```
-to:
-```yaml
-- type: self_check_input
-  engine: openai
-  model: ollama/llama3.2:3b
-  parameters:
-    base_url: "http://ollama:11434/v1"
-```
 
 Then restart NeMo: `docker compose restart nemo`
 
-Ollama + Llama 3.2 3B is pre-installed (see `scripts/init-ollama.sh`). Prompt tuning may be needed as 3B accuracy is lower than gpt-4o-mini. See [ADR-003](docs/decisions/003-local-judge-ollama.md).
+See [ADR-003](docs/decisions/003-local-judge-ollama.md) for benchmark results and trade-offs.
 
 ---
 
@@ -181,8 +183,8 @@ Ollama + Llama 3.2 3B is pre-installed (see `scripts/init-ollama.sh`). Prompt tu
 ├── guardrails/                 # NeMo Guardrails configs (Colang 1.0)
 │   ├── marketing/              # Block-list: roadmap, financials
 │   ├── engineering/            # Minimal: jailbreak only
-│   └── support/                # Allow-list + fact-checking + KB
-│       └── kb/                 # Product knowledge base for fact-checking
+│   └── support/                # Allow-list + KB (fact-checking wired in v2)
+│       └── kb/                 # Product knowledge base (ready, not yet active)
 │
 ├── scripts/
 │   ├── init-ollama.sh          # Pull llama3.2:3b on first boot
