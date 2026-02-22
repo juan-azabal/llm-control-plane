@@ -1,0 +1,282 @@
+# Tenant Configuration Schema
+#
+# Describes the configuration structure for a tenant (team) in the LLM Control Plane.
+# This schema documents what's stored in Postgres (managed by LiteLLM's API) and
+# what's configured in guardrails/<tenant-name>/ (managed as code).
+#
+# For LLM assistants: When creating or modifying tenant configs, validate against
+# this schema. The 'why' comments explain the reasoning behind each field.
+
+$schema: "http://json-schema.org/draft-07/schema#"
+title: TenantConfiguration
+description: |
+  Complete configuration for one tenant (business team) in the LLM Control Plane.
+  Composed of two parts:
+  1. LiteLLM team record (in Postgres, managed via API)
+  2. NeMo guardrail config (in guardrails/<name>/, managed as code)
+
+type: object
+required:
+  - name
+  - litellm
+  - guardrails
+
+properties:
+
+  name:
+    type: string
+    pattern: "^[a-z][a-z0-9-]{1,30}$"
+    description: |
+      Unique tenant identifier. Must match:
+      - The 'team_alias' field in LiteLLM
+      - The directory name under guardrails/<name>/
+      - The config_id in nemo_bridge.py's TENANT_RAIL_MAP
+      Lowercase letters, numbers, and hyphens only. No spaces.
+    examples:
+      - marketing
+      - engineering
+      - support
+      - legal-team
+
+  litellm:
+    type: object
+    required:
+      - models
+      - budget
+    description: Configuration managed by LiteLLM and stored in Postgres.
+
+    properties:
+      models:
+        type: array
+        items:
+          type: string
+          enum:
+            - gpt-4o-mini
+            - gpt-4o
+        minItems: 1
+        description: |
+          Models this tenant is allowed to call.
+          The model restriction is enforced by LiteLLM's virtual key system.
+          A key associated with a team can only call models in that team's allowlist.
+
+          Guidance:
+          - Use gpt-4o-mini for cost-sensitive tenants (marketing, support)
+          - Add gpt-4o for tenants that need more capability (engineering, legal)
+          - Never grant access to more models than the tenant actually needs
+        examples:
+          - ["gpt-4o-mini"]
+          - ["gpt-4o", "gpt-4o-mini"]
+
+      budget:
+        type: object
+        required:
+          - max_budget
+          - duration
+          - hard_cap
+        properties:
+
+          max_budget:
+            type: number
+            minimum: 1
+            maximum: 10000
+            description: |
+              Maximum spend in USD for the duration period.
+              Set conservatively — it's easier to raise a limit than explain an overage.
+              Rule of thumb: (expected_daily_requests × avg_tokens × model_cost) × 30 × 1.5 safety margin
+
+          duration:
+            type: string
+            enum:
+              - "1d"
+              - "7d"
+              - "30d"
+            description: |
+              Budget reset period. Use "30d" for monthly alignment with finance.
+              "1d" and "7d" are available for teams that need tighter cost control.
+
+          hard_cap:
+            type: boolean
+            description: |
+              If true: requests are blocked when max_budget is exceeded (hard cap).
+              If false: requests are allowed but an alert fires (soft cap).
+
+              Use hard caps for:
+              - Teams with predictable, bounded use cases (marketing, support)
+              - Teams where cost surprises are unacceptable
+
+              Use soft caps for:
+              - Engineering (debugging sessions shouldn't be cut off mid-investigation)
+              - Teams with highly variable usage patterns
+
+  guardrails:
+    type: object
+    required:
+      - nemo_config_id
+      - topic_control
+    description: |
+      Guardrail configuration. The nemo_config_id maps to guardrails/<nemo_config_id>/
+      The actual policy rules are in .co files in that directory.
+
+    properties:
+
+      nemo_config_id:
+        type: string
+        description: |
+          The NeMo config directory name. Must match the directory under guardrails/.
+          Typically the same as the tenant name.
+          Maps to the config_id sent in NeMo API calls.
+
+      topic_control:
+        type: object
+        required:
+          - mode
+        properties:
+
+          mode:
+            type: string
+            enum:
+              - none
+              - block_list
+              - allow_list
+            description: |
+              none       — No topic control. All queries pass (subject to jailbreak check).
+                           Use for: engineering, power users, internal research teams
+              block_list — Open by default. Named dangerous topics are blocked.
+                           Use for: tenants with broad legitimate use cases but specific risks
+                           Examples: marketing (block roadmap/financials), legal (block employee names)
+              allow_list — Closed by default. Only defined topics pass; everything else is blocked.
+                           Use for: tenants with narrow, well-defined scope
+                           Examples: support (product questions only), HR bot (HR topics only)
+
+          blocked_topics:
+            type: array
+            items:
+              type: string
+            description: |
+              [block_list mode only]
+              Human-readable topic names. These must correspond to 'define user ask about <topic>'
+              flows in the tenant's .co file.
+              Example: ["internal roadmap", "financial results", "employee information"]
+
+          allowed_topics:
+            type: array
+            items:
+              type: string
+            description: |
+              [allow_list mode only]
+              Human-readable topic names. These must correspond to 'define user ask about <topic>'
+              flows in the tenant's .co file.
+              Example: ["product features", "billing", "troubleshooting", "account management"]
+
+      pii_policy:
+        type: string
+        enum:
+          - strip
+          - warn
+          - block
+        description: |
+          What to do when PII (email, phone, SSN) is detected in a prompt.
+
+          strip  — Remove PII silently. Request continues with redacted text.
+                   Use for: tenants doing persona/customer simulation work (marketing)
+          warn   — Log the detection. Request continues unmodified.
+                   Use for: technical tenants with legitimate debugging needs (engineering)
+          block  — Reject the request. Return an error to the client.
+                   Use for: tenants handling real customer data (support, HR)
+
+      rails:
+        type: object
+        description: Which NeMo rails are enabled for this tenant.
+        properties:
+
+          self_check_input:
+            type: boolean
+            default: true
+            description: |
+              Enable jailbreak detection on input. Uses local LLM to evaluate
+              whether the input is a structural manipulation attempt.
+              Recommended: true for all tenants.
+
+          self_check_output:
+            type: boolean
+            default: false
+            description: |
+              Enable output safety checking. Uses local LLM to evaluate whether
+              the LLM's response is safe and appropriate.
+              Recommended: true for customer-facing tenants (support).
+
+          self_check_facts:
+            type: boolean
+            default: false
+            description: |
+              Enable fact-checking of responses against the knowledge base.
+              Requires a knowledge base in guardrails/<tenant>/kb/.
+              Recommended: true only if you have a maintained, accurate KB.
+              Warning: A stale KB produces more false positives than no checking.
+
+examples:
+  - name: marketing
+    litellm:
+      models:
+        - gpt-4o-mini
+      budget:
+        max_budget: 200
+        duration: "30d"
+        hard_cap: true
+    guardrails:
+      nemo_config_id: marketing
+      topic_control:
+        mode: block_list
+        blocked_topics:
+          - internal roadmap
+          - unreleased features
+          - financial results
+          - employee information
+          - source code
+      pii_policy: strip
+      rails:
+        self_check_input: true
+        self_check_output: true
+        self_check_facts: false
+
+  - name: engineering
+    litellm:
+      models:
+        - gpt-4o
+        - gpt-4o-mini
+      budget:
+        max_budget: 2000
+        duration: "30d"
+        hard_cap: false
+    guardrails:
+      nemo_config_id: engineering
+      topic_control:
+        mode: none
+      pii_policy: warn
+      rails:
+        self_check_input: true
+        self_check_output: false
+        self_check_facts: false
+
+  - name: support
+    litellm:
+      models:
+        - gpt-4o-mini
+      budget:
+        max_budget: 500
+        duration: "30d"
+        hard_cap: true
+    guardrails:
+      nemo_config_id: support
+      topic_control:
+        mode: allow_list
+        allowed_topics:
+          - product features
+          - billing
+          - troubleshooting
+          - account management
+      pii_policy: block
+      rails:
+        self_check_input: true
+        self_check_output: true
+        self_check_facts: true

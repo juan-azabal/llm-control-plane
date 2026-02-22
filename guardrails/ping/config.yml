@@ -1,0 +1,8 @@
+# Minimal NeMo Guardrails config — proves the server starts.
+# This config has no rails enabled. It simply passes through.
+# Used for smoke-testing the NeMo container during Phase 0.
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o-mini

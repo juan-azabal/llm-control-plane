@@ -1,0 +1,25 @@
+# Engineering Tenant — NeMo Guardrails Configuration
+#
+# Risk profile: Low risk. Technically sophisticated, evaluate output critically.
+# Strategy: MINIMAL rails. Heuristic jailbreak only. No topic control.
+#
+# Overhead: ~15ms latency, ~$0/request
+# Trade-off: Speed > Flexibility > Safety
+#
+# ADR-005: No topic control for engineering.
+# Restricting topics forces shadow AI adoption. Invisible usage > visible but restricted.
+# ADR-008: Heuristic jailbreak only — internal team, no adversarial incentive.
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o
+
+  - type: self_check_input
+    engine: openai
+    model: gpt-4o-mini
+
+rails:
+  input:
+    flows:
+      - self check input

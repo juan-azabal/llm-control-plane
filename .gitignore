@@ -1,0 +1,24 @@
+# Environment
+.env
+.env.tenants
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Docker volumes
+ollama_data/
+postgres_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Spec (source doc, not part of the deliverable)
+llm-control-plane-spec-final.md

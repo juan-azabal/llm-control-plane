@@ -1,0 +1,30 @@
+# NeMo Guardrails server
+# No official Docker image exists — build from pip.
+#
+# This runs the NeMo Guardrails server which evaluates semantic rails
+# (topic control, jailbreak detection, output safety, fact-checking)
+# using a local Ollama judge model. No data leaves the network.
+
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install NeMo Guardrails with OpenAI and Ollama integrations
+RUN pip install --no-cache-dir \
+    nemoguardrails \
+    langchain-openai \
+    langchain-ollama \
+    aiohttp
+
+# Config directory — mounted from host at runtime
+WORKDIR /config
+
+EXPOSE 8000
+
+# Start NeMo Guardrails server
+# --config points to the directory containing per-tenant config folders
+CMD ["nemoguardrails", "server", "--config", "/config", "--port", "8000"]

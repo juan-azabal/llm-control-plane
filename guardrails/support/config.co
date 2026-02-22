@@ -1,0 +1,74 @@
+# Support Tenant — Colang Guardrails
+#
+# Topic control: ALLOW-LIST mode
+# Allowed topics: product features, billing, troubleshooting, account management
+# Everything else is blocked.
+#
+# ADR-006: Support's scope is narrow and well-defined.
+# Anything outside product/billing/troubleshooting is a risk.
+# Allow-listing is more restrictive but appropriate here.
+#
+# Jailbreak: heuristic + LLM judge (via self check input)
+# Customers are more adversarial than employees.
+
+# ─── Allowed topic definitions ─────────────────────────────────────────
+
+define user ask about product features
+  "What can your product do?"
+  "Does it support feature X?"
+  "Tell me about the dashboard"
+  "How does the reporting work?"
+  "What integrations are available?"
+  "Can I export data to CSV?"
+
+define user ask about billing
+  "How much does it cost?"
+  "Can I change my plan?"
+  "I have a billing question"
+  "When is my next invoice?"
+  "How do I update my payment method?"
+  "What are the pricing tiers?"
+
+define user ask about troubleshooting
+  "Something isn't working"
+  "I'm getting an error"
+  "How do I fix this?"
+  "The page won't load"
+  "I can't log in"
+  "My export failed"
+
+define user ask about account management
+  "How do I reset my password?"
+  "I need to update my account"
+  "How do I add a user?"
+  "Can I change my email?"
+  "How do I delete my account?"
+
+# ─── Off-topic detection ──────────────────────────────────────────────
+
+define user ask off topic
+  "What's the weather like?"
+  "Tell me a joke"
+  "What do you think about politics?"
+  "Write me a poem"
+  "What's the meaning of life?"
+  "Who won the game last night?"
+  "Help me write a cover letter"
+  "What's your opinion on AI regulation?"
+  "Can you help me with my homework?"
+  "Tell me about competitor products"
+
+# ─── Bot responses ─────────────────────────────────────────────────────
+
+define bot inform off topic
+  "I can only help with product features, billing, troubleshooting, and account management. Please let me know if you have a question about any of these topics."
+
+define bot inform cannot verify
+  "I don't have verified information about that. Let me connect you with a support agent who can help with your specific question."
+
+# ─── Flows ─────────────────────────────────────────────────────────────
+
+define flow check topic allow list
+  user ask off topic
+  bot inform off topic
+  stop
