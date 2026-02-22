@@ -1,0 +1,104 @@
+# LLM Control Plane — Docker Compose
+#
+# Four services on a shared network:
+#   ollama       — local judge model (Llama 3.2 3B), no external access
+#   nemo         — NeMo Guardrails server (semantic rails), internal only
+#   litellm      — API gateway (port 8080), the single entry point
+#   postgres     — LiteLLM's database for teams, keys, budgets
+#
+# Usage:
+#   cp .env.example .env   # fill in your API keys
+#   docker compose up -d
+#   bash scripts/init-ollama.sh   # pulls the judge model (~2GB, first run only)
+
+services:
+  # ─── Ollama: Local Judge Model ───────────────────────────────────────
+  # Runs Llama 3.2 3B for semantic evaluation. Data never leaves this container.
+  # ADR-003: the judge must be local.
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - control-plane
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── NeMo Guardrails: Semantic Rails Server ─────────────────────────
+  # Evaluates topic control, jailbreak detection, output safety, fact-checking.
+  # Uses Ollama as its judge model. ADR-002: NeMo only for semantic rails.
+  nemo:
+    build:
+      context: .
+      dockerfile: Dockerfile.nemo
+    volumes:
+      - ./guardrails:/config:ro
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    ports:
+      - "127.0.0.1:8001:8000"   # localhost-only; for health checks and debugging
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - control-plane
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/rails/configs"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ─── LiteLLM: API Gateway ───────────────────────────────────────────
+  # Single entry point (port 8080). Routes requests, enforces budgets,
+  # manages virtual keys, runs deterministic guardrails (secrets, PII).
+  # ADR-001: LiteLLM over custom gateway.
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    volumes:
+      - ./litellm-config.yaml:/app/config.yaml
+      - ./custom_guardrails:/app/custom_guardrails
+      - ./secrets:/app/secrets:ro
+    ports:
+      - "8080:4000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - LITELLM_SALT_KEY=${LITELLM_SALT_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - control-plane
+    command: ["--config", "/app/config.yaml", "--detailed_debug"]
+
+  # ─── Postgres: LiteLLM Database ─────────────────────────────────────
+  # Stores teams, virtual keys, budget tracking, audit metadata.
+  # ADR-010: never stores request/response content.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-litellm}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - control-plane
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  ollama_data:
+  postgres_data:
+
+networks:
+  control-plane:
+    driver: bridge

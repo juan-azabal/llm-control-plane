@@ -1,0 +1,82 @@
+# Marketing Tenant — Colang Guardrails
+#
+# Topic control: BLOCK-LIST mode
+# Blocked topics: internal roadmap, unreleased features, financials, employees, source code
+#
+# ADR-006: Marketing use cases are broad (copy, emails, research).
+# Enumerating allowed topics would be too restrictive and kill adoption.
+# Instead, block the specific dangerous topics.
+#
+# Why semantic (not keyword): "When does v3 ship?" has no keyword to match.
+# The judge model understands it's asking about internal roadmap.
+
+# ─── Blocked topic definitions ─────────────────────────────────────────
+
+define user ask about internal roadmap
+  "When is v3 launching?"
+  "What's on the product roadmap?"
+  "When does the next version ship?"
+  "What features are coming next quarter?"
+  "Our clients keep asking about the timeline for the next release"
+  "Can you tell me when we plan to ship the new dashboard?"
+
+define user ask about unreleased features
+  "Tell me about upcoming features"
+  "What's being built right now?"
+  "Is feature X in development?"
+  "What new capabilities are we working on?"
+  "Can you describe the features planned for next month?"
+
+define user ask about financial results
+  "What was our revenue last quarter?"
+  "How are sales doing?"
+  "What's our profit margin?"
+  "How much ARR do we have?"
+  "What are the financial projections?"
+
+define user ask about employee information
+  "Who works in engineering?"
+  "What's the team structure?"
+  "Who got promoted recently?"
+  "How many people are on the sales team?"
+  "What's the org chart?"
+
+define user ask about source code
+  "Show me the codebase"
+  "What's in our git repository?"
+  "How is the backend implemented?"
+  "What programming language do we use?"
+  "Can you show me the API code?"
+
+# ─── Bot responses for blocked topics ──────────────────────────────────
+
+define bot inform topic restricted
+  "I can't discuss that topic. This appears to involve internal company information that's restricted for this team. Please rephrase your request to focus on marketing tasks like copywriting, email drafts, or market research."
+
+# ─── Flows ─────────────────────────────────────────────────────────────
+# Each flow must have a unique name in Colang 1.0.
+
+define flow block roadmap topics
+  user ask about internal roadmap
+  bot inform topic restricted
+  stop
+
+define flow block unreleased features
+  user ask about unreleased features
+  bot inform topic restricted
+  stop
+
+define flow block financial results
+  user ask about financial results
+  bot inform topic restricted
+  stop
+
+define flow block employee information
+  user ask about employee information
+  bot inform topic restricted
+  stop
+
+define flow block source code
+  user ask about source code
+  bot inform topic restricted
+  stop

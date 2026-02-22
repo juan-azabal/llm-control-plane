@@ -1,0 +1,62 @@
+# LiteLLM Gateway Configuration
+#
+# This is the central config for the API gateway.
+# Models, guardrails, and general settings live here.
+# Teams and virtual keys are managed via the API (see scripts/setup-tenants.sh).
+
+model_list:
+  # ─── gpt-4o-mini: Cost-effective model ──────────────────────────────
+  # Used by: Marketing (copywriting), Support (with fact-checking)
+  # Why: sufficient quality for these tasks, keeps cost/request low.
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+  # ─── gpt-4o: Capable model ─────────────────────────────────────────
+  # Used by: Engineering (code generation, architecture)
+  # Note: spec calls for Claude Sonnet but we're using OpenAI-only.
+  # gpt-4o serves as the "capable model" equivalent.
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+
+# ─── Guardrails ────────────────────────────────────────────────────────
+# Executed in order. Secrets detection runs first (Layer 1),
+# then NeMo semantic rails (Layer 2).
+# ADR-004: Secrets detection is infrastructure, not a guardrail.
+
+guardrails:
+  # Layer 1: Secrets detection (deterministic, regex, $0, <1ms)
+  # ADR-004: Runs FIRST, before everything. All tenants. Non-negotiable.
+  # On match: request blocked immediately. No data forwarded anywhere.
+  - guardrail_name: "secrets-detection"
+    litellm_params:
+      guardrail: custom_guardrails.secrets_detector.SecretsDetector
+      mode: "pre_call"
+      default_on: true
+
+  # Layer 1b: PII detection (deterministic, regex, <1ms)
+  # ADR-008: Per-tenant policy: strip (marketing), warn (engineering), block (support).
+  # Runs before NeMo so semantic rails never see raw PII.
+  - guardrail_name: "pii-detection"
+    litellm_params:
+      guardrail: custom_guardrails.pii_detector.PIIDetector
+      mode: "pre_call"
+      default_on: true
+
+  # Layer 2: NeMo Guardrails bridge (semantic rails via local Ollama judge)
+  # ADR-002: NeMo only for semantic rails.
+  # ADR-003: Judge model is always local.
+  # ADR-011: Fails open if NeMo is unavailable.
+  - guardrail_name: "nemo-guardrails"
+    litellm_params:
+      guardrail: custom_guardrails.nemo_bridge.NemoGuardrailBridge
+      mode: "pre_call"
+      default_on: true
+      api_base: "http://nemo:8000"
