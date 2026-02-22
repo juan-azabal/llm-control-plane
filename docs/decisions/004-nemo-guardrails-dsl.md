@@ -17,7 +17,7 @@ Use **NeMo Guardrails with Colang 1.0** as the semantic policy engine.
 
 ## Rationale
 
-1. **Declarative policy DSL.** Colang lets policy authors express rules in near-natural-language without writing Python. This separates policy from code — product, legal, or compliance teams can read and modify policies.
+1. **Declarative policy DSL.** Colang lets policy authors express rules in near-natural-language without writing Python. This separates policy from code — product, legal, or compliance teams can read and modify policies. *Note: in the MVP, the active policy lives in `prompts.yml` (natural-language prompts for `self_check_input`), not in Colang flows. Colang `.co` files serve as human-readable policy documentation. The intent of readable, non-Python policy definition is still achieved; the mechanism is prompts rather than Colang DSL.*
 
 2. **Semantic understanding, not keywords.** `"When does v3 launch?"` contains no blocked keyword, but NeMo's LLM-based input rail understands it's asking about internal roadmap. Keyword blocking would miss this.
 
