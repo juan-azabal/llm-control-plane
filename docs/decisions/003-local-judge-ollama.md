@@ -1,6 +1,6 @@
 # ADR-003: Local LLM Judge via Ollama
 
-**Status:** Accepted
+**Status:** Accepted — MVP exception in effect (see Implementation Note)
 
 ## Context
 
@@ -37,6 +37,15 @@ If judgment quality is insufficient:
 2. Use a fine-tuned safety classifier (faster, purpose-built)
 3. For output safety only (not input): use GPT-4 as a judge (acceptable because the input has already passed Layer 1)
 
+## Implementation Note (MVP)
+
+The MVP uses **gpt-4o-mini** (OpenAI) as the NeMo judge model instead of Ollama + Llama 3.2 3B. This was a deliberate pragmatic choice during the MVP phase:
+
+- **Reason:** gpt-4o-mini produces more reliable Yes/No judgments for `self_check_input`, allowing the full control plane stack to be validated without prompt-tuning the 3B model first.
+- **Cost implication:** Each guarded request now calls gpt-4o-mini twice (once as the judge, once as the task LLM). This is not acceptable for production.
+- **Ollama readiness:** Ollama + Llama 3.2 3B is pre-pulled (`scripts/init-ollama.sh`). Switching is a one-line change in each `guardrails/*/config.yml` (change `engine: openai / model: gpt-4o-mini` to `engine: openai / model: ollama/llama3.2:3b` with `base_url: http://ollama:11434/v1`).
+- **This ADR's decision stands.** The target architecture uses a local judge. The MVP is the exception, not the rule.
+
 ## Invalidation Signal
 
-A security incident where a harmful request evaded NeMo+3B detection and reached the cloud LLM, causing a real-world negative outcome. At that point, upgrade the judge model quality.
+A security incident where a harmful request evaded NeMo detection and reached the cloud LLM, causing a real-world negative outcome. At that point, upgrade the judge model quality (not the architecture).

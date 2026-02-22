@@ -1,6 +1,6 @@
 # ADR-007: Fact-Checking for Support Tenant
 
-**Status:** Accepted
+**Status:** Accepted — Implementation deferred to v2 (see Implementation Note)
 
 ## Context
 
@@ -29,6 +29,23 @@ Enable NeMo's `self_check_facts` output rail for the Support tenant. Maintain a 
 ## Alternative Considered
 
 Use a retrieval-augmented generation (RAG) system that injects KB context into the system prompt, making hallucination less likely in the first place. This is more complex to implement but reduces reliance on the probabilistic fact-checking step. Deferred to v2.
+
+## Implementation Note (MVP)
+
+`self_check_facts` is **not active in the MVP**. The decision to implement it stands, but implementation is deferred to v2 due to complexity and the risk of false positives blocking legitimate support responses before the system is validated.
+
+**Current MVP state:**
+- Product knowledge base exists at `guardrails/support/kb/` (features.md, pricing.md, troubleshooting.md, account.md)
+- `self_check_facts` is NOT configured in `guardrails/support/config.yml`
+- `nemo_bridge.py` has a `async_post_call_success_hook` that calls NeMo for output rails, but output rails are not enabled
+- `tests/05-support-factcheck.sh` runs but hallucination detection failures are non-fatal
+
+**v2 implementation path:**
+1. Add `self_check_facts` model to `guardrails/support/config.yml`
+2. Add `self_check_facts` to `rails.output.flows`
+3. Add `self_check_facts` prompt to `guardrails/support/prompts.yml` referencing the KB
+4. Enable output rails in `nemo_bridge.py` post_call hook
+5. Re-run `tests/05-support-factcheck.sh` and make failures fatal
 
 ## Invalidation Signal
 
