@@ -1,6 +1,6 @@
 # ADR-003: Local LLM Judge via Ollama
 
-**Status:** Accepted — MVP exception in effect (see Implementation Note)
+**Status:** Accepted
 
 ## Context
 
@@ -16,13 +16,46 @@ Use **Ollama running Llama 3.2 3B** as the local semantic judge.
 
 ## Rationale
 
-1. **Zero data exfiltration (target).** A flagged request that contains sensitive content must not be sent to a cloud LLM to be evaluated. If the judge is cloud-based, you've already sent the potentially harmful content externally. A local judge keeps all content on-network. *Note: the MVP uses gpt-4o-mini as judge (see Implementation Note), which temporarily violates this principle at the semantic layer. Layer 1 still scrubs secrets and PII before any cloud call.*
+### Primary reason: the judge sees potentially sensitive content
+
+To evaluate whether a request is harmful or off-topic, the judge model must read that request in full. This creates a critical constraint: **if the judge is a cloud model, every employee query — including those containing sensitive company information — is transmitted to a third-party LLM for evaluation, before it is decided whether to block it.**
+
+This is a structural contradiction. A system designed to prevent sensitive data from leaving the company would be sending that data externally on every request, as part of the act of deciding whether to block it.
+
+Using a local judge resolves the contradiction: the semantic evaluation happens entirely within the company's network perimeter. Sensitive queries are evaluated locally and blocked locally — they never reach the internet.
+
+### Secondary reasons
 
 2. **No per-judgment cost.** Cloud API calls cost money per token. With 3B parameters on a modern CPU, the marginal cost per judgment is electricity. High-volume deployments can easily make this 10x cheaper than cloud judging.
 
 3. **Independence from cloud availability.** If OpenAI has an outage, the guardrail shouldn't also fail. Local inference is independent.
 
-4. **Privacy by default.** Even for benign requests, the content of every request is visible to the judge. We should not send all employee queries to a third-party LLM just for policy evaluation.
+4. **Data sovereignty.** Even for benign requests, the content of every query is visible to the judge. Sending all employee queries to a third-party LLM for routine policy evaluation creates a continuous data-sharing relationship that may conflict with data residency requirements or employee privacy expectations.
+
+## The Double-Send Problem
+
+When using a cloud judge, every guarded request results in **two** external API calls:
+
+```
+Employee query → [NeMo judge: gpt-4o-mini at OpenAI] → decision
+                                                        ↓ (if allowed)
+Employee query → [Production LLM: gpt-4o-mini at OpenAI] → response
+```
+
+The query is sent to OpenAI twice: once for evaluation, once for the response. This means:
+- OpenAI sees 100% of employee queries, not just the ones that pass policy
+- A query containing internal roadmap details is transmitted to evaluate whether to block it
+- The "secrets detection" Layer 1 scrubs credentials and PII, but semantic content (product strategy, financial discussions, employee matters) passes through Layer 1 and reaches the cloud judge
+
+With a local judge:
+
+```
+Employee query → [NeMo judge: Llama 3.2 3B on local Ollama] → decision
+                                                               ↓ (if allowed)
+Employee query (clean) → [Production LLM: gpt-4o-mini at OpenAI] → response
+```
+
+Only approved, policy-compliant requests reach the cloud. The evaluation itself stays on-network.
 
 ## Trade-offs Accepted
 
@@ -54,7 +87,7 @@ The 2 persistent failures (IDs 31 and 39) represent edge cases where the 3B mode
 **Consequence:** The 3B model meets the ≥90% threshold for engineering and support (F1). Marketing recall is 88.8% — marginally below the 90% threshold for recall. This is accepted because:
 1. The 1 missed case (HR job posting) is a genuinely ambiguous edge case
 2. The deterministic Layer 1 (secrets + PII) still protects the most critical data
-3. The cost/privacy benefit of local inference outweighs the marginal accuracy gap
+3. The security benefit of local evaluation (no sensitive queries sent externally) outweighs the marginal accuracy gap vs. a cloud judge
 
 **Model name correction:** The correct model name for Ollama's OpenAI-compatible API is `llama3.2:3b` (not `ollama/llama3.2:3b`). Config example:
 ```yaml

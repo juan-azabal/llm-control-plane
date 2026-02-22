@@ -4,7 +4,7 @@ An enterprise AI governance layer that routes, guards, and governs LLM usage acr
 
 **Stack:** LiteLLM (gateway) · NeMo Guardrails (semantic rails) · Ollama + Llama 3.2 3B (local judge) · Docker Compose
 
-> **Local judge:** NeMo's semantic rails run against Ollama + Llama 3.2 3B — no data leaves the network for policy evaluation. Benchmark: engineering 100%, marketing 94.7% F1, support 90.8% F1. See [ADR-003](docs/decisions/003-local-judge-ollama.md).
+> **Privacy-by-design:** To evaluate whether a query is harmful or off-topic, the judge model must read it in full. If the judge is a cloud model, every employee query — including sensitive ones — is transmitted externally *before* it's decided whether to block it. Ollama keeps evaluation on-network: only policy-compliant requests reach the cloud LLM. Benchmark: engineering 100% F1, marketing 94.7%, support 90.8%. See [ADR-003](docs/decisions/003-local-judge-ollama.md).
 
 ---
 
@@ -89,16 +89,16 @@ All tests should pass. You'll see:
 │         NeMo Guardrails Server               │  :8000 (internal)
 │                                              │
 │  self_check_input rail (active)              │
-│  ─────────────────────────────               │──► gpt-4o-mini (MVP judge)
-│  Output rails (deferred — v2)                │    or Ollama 3B (production)
+│  ─────────────────────────────               │──► Ollama + Llama 3.2 3B (local judge)
+│  Output rails (deferred — v2)                │    evaluation stays on-network
 │  Colang flows (reference only)               │
 └──────────────────────────────────────────────┘
-                   │ (only clean requests)
+                   │ (only policy-compliant requests)
                    ▼
          Cloud LLM (OpenAI gpt-4o-mini / gpt-4o)
 ```
 
-**Key invariant:** Secrets and PII are scrubbed before any cloud call. Layer 1 is fully deterministic and cannot be bypassed.
+**Key invariants:** Secrets and PII are scrubbed before any cloud call. Layer 1 is fully deterministic and cannot be bypassed. The local judge ensures that sensitive queries are evaluated on-network — they never reach the internet as part of the act of deciding whether to block them.
 
 ---
 
@@ -226,12 +226,12 @@ docker compose restart litellm
 
 ### NeMo is not blocking topics
 
-NeMo uses `self_check_input` with an LLM judge (gpt-4o-mini by default). Check NeMo logs:
+NeMo uses `self_check_input` with a local Ollama judge (Llama 3.2 3B). Requests can take 5–30 seconds on CPU — this is normal. Check NeMo logs:
 ```bash
 docker compose logs nemo --follow
 ```
 
-If using Ollama as judge, requests can take 5–30 seconds on CPU. Check that the model is pulled:
+Verify the model is loaded:
 ```bash
 docker exec -it llm-control-plane-ollama-1 ollama list
 ```

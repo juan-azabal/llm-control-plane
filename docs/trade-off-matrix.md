@@ -8,27 +8,30 @@ This document makes the key design tensions explicit. Every meaningful design de
 
 | Decision | Security Benefit | Availability Cost |
 |----------|-----------------|-------------------|
+| Local judge via Ollama (ADR-003) | Sensitive queries evaluated on-network — never sent to a third party to decide whether to block them | Judge model quality limited by local compute; CPU latency 5–30s |
 | Fail-open (ADR-011) | Deterministic rails always active | Semantic rails bypass during outage |
-| Local judge target (ADR-003) | No content sent externally for evaluation | Judge model quality limited by local compute |
-| MVP: gpt-4o-mini as judge | Higher judgment accuracy during validation | Content sent to OpenAI for judge evaluation |
 | Hard budget caps | Prevents runaway spend | Blocks users mid-session when cap hit |
-| Secrets detection before NeMo | High-severity secrets never seen by NeMo | Extra latency for every request |
+| Secrets detection before NeMo | High-severity secrets never seen by NeMo or the judge | Extra latency for every request |
+
+**The judge locality problem:** A cloud-based judge creates a structural contradiction — to decide whether to block a sensitive query, the system must first transmit that query externally. The local judge resolves this: evaluation happens on-network, and only policy-compliant requests reach the cloud LLM. See ADR-003 for the full argument.
 
 **The dominant tradeoff:** This system is designed to enable AI adoption, not to prevent it. Every "fail-open" and "warn-and-allow" decision reflects a deliberate bet that visible-but-imperfect control is better than invisible circumvention.
 
 ---
 
-## Model Quality vs Cost
+## Judge Model Quality vs Security Boundary
 
-| Component | MVP (Current) | Target (v1) | Higher Quality (v2+) | Cost of Upgrade |
-|-----------|--------------|------------|----------------------|-----------------|
-| Judge model | gpt-4o-mini (cloud, per-token) | Llama 3.2 3B via Ollama (free, local) | Llama 3.1 8B/70B or fine-tuned classifier | GPU hardware or cloud API |
-| Fact-checking | Not active (deferred) | self_check_facts + gpt-4o-mini | RAG with vector DB + capable model | Vector DB infra + latency |
-| Output safety | Not active (deferred) | self_check_output + gpt-4o-mini | Fine-tuned output classifier | Labeled training data |
-| Jailbreak detection | self_check_input + gpt-4o-mini | self_check_input + Ollama 3B | Llama Guard (purpose-built) | ~Same cost, different model |
-| Semantic topic detection | LLM classification + gpt-4o-mini | LLM classification + Ollama 3B | Fine-tuned BERT classifier | Training data + fine-tuning pipeline |
+The judge model choice is primarily a security decision, not a cost decision. A cloud judge sees 100% of employee queries — including sensitive ones — before deciding whether to block them. A local judge evaluates on-network.
 
-**Immediate next step:** Switch the judge from gpt-4o-mini to Ollama 3B. The prompts are validated and working with gpt-4o-mini — the same prompts should work with 3B after minor tuning. This eliminates the double cloud API cost per request.
+| Component | Current (v1) | Higher Quality (v2+) | Upgrade Cost |
+|-----------|-------------|----------------------|--------------|
+| Judge model | Llama 3.2 3B via Ollama (local, F1: 95% overall) | Llama 3.1 8B/70B or fine-tuned classifier (local) | GPU hardware |
+| Fact-checking | Not active (deferred) | self_check_facts + local model + RAG | Vector DB infra + latency |
+| Output safety | Not active (deferred) | self_check_output + local model | Wiring + latency |
+| Jailbreak detection | self_check_input + Ollama 3B | Llama Guard (purpose-built safety classifier) | ~Same infra, different model |
+| Semantic topic detection | LLM classification + Ollama 3B | Fine-tuned BERT classifier | Training data + fine-tuning pipeline |
+
+**Why not use a cloud judge for higher accuracy?** Upgrading accuracy by switching to a cloud judge (e.g., gpt-4o-mini) would mean sending every employee query to OpenAI for evaluation — including the sensitive ones we're trying to protect. The marginal accuracy gain does not justify breaking the network boundary. If higher accuracy is required, upgrade the local model (8B, 70B, or a fine-tuned classifier), not the judge location.
 
 ---
 

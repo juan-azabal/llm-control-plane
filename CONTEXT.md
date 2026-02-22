@@ -11,7 +11,7 @@ An enterprise AI governance layer. It sits between your business teams and cloud
 The three open-source components are:
 - **LiteLLM** — API gateway, routing, budget enforcement, virtual keys
 - **NeMo Guardrails** — semantic policy engine (Colang 1.0 DSL, `self_check_input` rail)
-- **Ollama + Llama 3.2 3B** — local judge LLM powering NeMo's `self_check_input` rail (zero marginal cost)
+- **Ollama + Llama 3.2 3B** — local judge LLM powering NeMo's `self_check_input` rail. Runs on-network so that sensitive queries are never transmitted externally during evaluation. Zero marginal cost per judgment.
 
 **Current judge:** Ollama + Llama 3.2 3B (local). Benchmark accuracy: engineering 100%/100% F1, marketing 100%/88.8%, support 100%/83.3%. See `tests/judge-benchmark/results.md` and ADR-003 for known edge cases.
 
@@ -21,7 +21,7 @@ The three open-source components are:
 
 These are non-negotiable. Violating them breaks the security model.
 
-1. **Sensitive data never reaches the cloud.** Layer 1 (deterministic) scrubs secrets and PII before any cloud call. The NeMo judge (Ollama 3B) is local — it sees the cleaned prompt content but never forwards it externally.
+1. **Sensitive data never reaches the cloud — including during evaluation.** Layer 1 (deterministic) scrubs secrets and PII before any cloud call. The NeMo judge (Ollama 3B) is local: it reads the full query to decide whether to block it, but that evaluation happens on-network. Only policy-compliant requests are forwarded to the cloud LLM. A cloud-based judge would transmit every sensitive query externally before deciding whether to block it — this architecture avoids that contradiction.
 
 2. **Secrets detection runs before everything else.** In `litellm-config.yaml`, `secrets-detection` must appear before `nemo-guardrails` in the `guardrails:` list. LiteLLM processes them in order.
 
@@ -62,7 +62,7 @@ guardrails/<tenant>/        ← NeMo configs per tenant.
 | Colang flows | ⏸ Reference only | `guardrails/*/config.co` |
 | Output safety rails | ⏸ Deferred (v2) | Not configured in any `config.yml` |
 | Fact-checking | ⏸ Deferred (v2) | KB exists, not wired to NeMo |
-| Ollama as judge | ⏸ Ready, not active | `scripts/init-ollama.sh` pulls the model |
+| Ollama as judge | ✅ Active | `guardrails/*/config.yml`, `scripts/init-ollama.sh` |
 
 ---
 
@@ -234,7 +234,7 @@ This creates new teams and keys. Old keys remain valid unless explicitly deleted
 
 ## Known Limitations
 
-1. **gpt-4o-mini as judge (MVP cost).** The current judge model is gpt-4o-mini, which adds API cost per guarded request. This was chosen for MVP accuracy. The production target is Ollama + Llama 3.2 3B (zero marginal cost). Switching is a config change — see README for instructions.
+1. **Judge model accuracy.** The local judge (Llama 3.2 3B) achieves 95% overall accuracy (38/40 benchmark prompts). Two edge cases are persistently inconsistent: implicit HR requests in Marketing and certain competitor comparison phrasings in Support. These are documented in `tests/judge-benchmark/results.md` and ADR-003. Upgrading to a larger local model (8B, 70B) would improve accuracy without compromising the network boundary.
 
 2. **NeMo latency.** Each request that hits NeMo adds 1–5 seconds (gpt-4o-mini judge). With Ollama 3B on CPU, this rises to 5–30 seconds. On GPU, both drop to <1s.
 
@@ -261,6 +261,6 @@ This creates new teams and keys. Old keys remain valid unless explicitly deleted
 
 The NeMo image builds from `python:3.11-slim` and installs:
 - `nemoguardrails` — the guardrails engine
-- `langchain-openai` — required for gpt-4o-mini judge (current MVP)
-- `langchain-ollama` — required for Ollama/Llama 3.2 3B judge (production target)
+- `langchain-openai` — required for NeMo's OpenAI-compatible engine interface (used even with Ollama, which exposes an OpenAI-compatible API)
+- `langchain-ollama` — required for Ollama/Llama 3.2 3B judge
 - `aiohttp` — async HTTP client for internal calls
