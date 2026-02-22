@@ -34,6 +34,11 @@ Colang 2.0 is a more powerful but less documented and more complex language. The
 - **No official Docker image.** NeMo Guardrails has no maintained Docker image. We build our own from `python:3.11-slim`. This means we own the maintenance of that image.
 - **Hallucinated examples.** NeMo's `self_check_input` uses the LLM to evaluate whether something matches the example utterances. With a 3B model, there will be false positives and negatives.
 - **Colang 1.0 is in maintenance mode.** The NeMo team is moving toward Colang 2.0. Eventually, 1.0 will need migration.
+- **Colang flows do NOT work as semantic evaluators in server mode.** This is a significant finding from MVP implementation: Colang `define flow` blocks are chatbot-turn conversation flows (they match on intent patterns and drive dialogue state). When used as `rails.input.flows`, they execute as conversation turns but do not function as LLM-evaluated topic classifiers. The `self_check_input` built-in rail (backed by an LLM judge and a custom prompt) is the correct mechanism for semantic input evaluation. The `.co` files in this project document the intended policy in a readable format but are not active guardrails in the MVP.
+
+## Implementation Note (MVP)
+
+The active semantic evaluation mechanism is `self_check_input` configured in each tenant's `config.yml`, powered by a custom prompt in `prompts.yml`. Colang flows (`.co` files) are kept as reference documentation and are ready to activate if NeMo adds evaluator-mode flow execution in a future version.
 
 ## Invalidation Signal
 

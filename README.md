@@ -2,7 +2,9 @@
 
 An enterprise AI governance layer that routes, guards, and governs LLM usage across business teams — each with different risk profiles, budgets, and content policies.
 
-**Stack:** LiteLLM (gateway) · NeMo Guardrails (semantic rails) · Ollama + Llama 3.2 3B (local judge) · Docker Compose
+**Stack:** LiteLLM (gateway) · NeMo Guardrails (semantic rails) · gpt-4o-mini (judge, MVP) · Docker Compose
+
+> **MVP Note:** The judge model is currently gpt-4o-mini (fast, reliable for validating the stack). Ollama + Llama 3.2 3B is installed and ready — switching is a one-line config change. See [ADR-003](docs/decisions/003-local-judge-ollama.md) for the upgrade path.
 
 ---
 
@@ -65,10 +67,10 @@ All tests should pass. You'll see:
 │  Layer 1 — Deterministic Rails (all tenants)   │
 │  ┌──────────────┐  ┌─────────────────────────┐ │
 │  │ Secrets Det. │  │ PII Detector            │ │
-│  │ (regex)      │  │ (strip/warn/block)      │ │
+│  │ (regex, <1ms)│  │ (strip/warn/block)      │ │
 │  └──────────────┘  └─────────────────────────┘ │
 │  ┌──────────────┐                               │
-│  │ Budget Guard │  (LiteLLM built-in)           │
+│  │ Budget Guard │  (LiteLLM built-in, Postgres) │
 │  └──────────────┘                               │
 │                                                 │
 │  Layer 2 — Semantic Rails (per-tenant policy)  │
@@ -76,24 +78,25 @@ All tests should pass. You'll see:
 │  │       NeMo Guardrails Bridge            │   │
 │  │  marketing: block-list topics           │   │
 │  │  engineering: jailbreak only            │   │
-│  │  support: allow-list + fact-check       │   │
+│  │  support: allow-list topics             │   │
 │  └───────────────┬─────────────────────────┘   │
 │                  │ HTTP                          │
 └──────────────────┼──────────────────────────────┘
                    ▼
-┌──────────────────────────────┐
-│      NeMo Guardrails         │  :8000 (internal)
-│  ┌────────────┐              │
-│  │  Colang    │              │
-│  │  flows     │ ────────────►│──► Ollama (3B judge)
-│  └────────────┘              │    :11434 (internal)
-└──────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│         NeMo Guardrails Server               │  :8000 (internal)
+│                                              │
+│  self_check_input rail (active)              │
+│  ─────────────────────────────               │──► gpt-4o-mini (MVP judge)
+│  Output rails (deferred — v2)                │    or Ollama 3B (production)
+│  Colang flows (reference only)               │
+└──────────────────────────────────────────────┘
                    │ (only clean requests)
                    ▼
          Cloud LLM (OpenAI gpt-4o-mini / gpt-4o)
 ```
 
-**Key invariant:** Sensitive data never reaches the cloud. Layer 1 and 2 both run fully local.
+**Key invariant:** Secrets and PII are scrubbed before any cloud call. Layer 1 is fully deterministic and cannot be bypassed.
 
 ---
 
@@ -117,9 +120,12 @@ All tests should pass. You'll see:
 
 ### Changing topic policy
 
-Topic control is in Colang files under `guardrails/<tenant>/`:
-- Block-list: define blocked topic flows in `config.co`, restart NeMo
-- Allow-list: define allowed topic flows with `bot inform off topic` for others
+Topic control is driven by the `self_check_input` prompt in `guardrails/<tenant>/prompts.yml`.
+
+- **Block-list (Marketing):** Edit the BLOCK section in `prompts.yml`, restart NeMo
+- **Allow-list (Support):** Edit the ALLOW section in `prompts.yml`, restart NeMo
+
+> **Note on Colang flows:** The `.co` files under `guardrails/<tenant>/` are reference documentation. In NeMo server mode, Colang flows behave as chatbot-turn flows, not semantic evaluators — so the active policy logic lives in `prompts.yml`, not `.co` files. See [ADR-004](docs/decisions/004-nemo-guardrails-dsl.md).
 
 ### Adjusting budgets
 
@@ -133,7 +139,26 @@ curl -X POST http://localhost:8080/team/update \
 
 ### Upgrading the judge model
 
-Edit `guardrails/*/config.yml`, change `model: ollama/llama3.2:3b` to `ollama/llama3.1:8b`, then pull the model and restart NeMo.
+**Switch from gpt-4o-mini to Ollama (cost reduction):**
+
+In all `guardrails/*/config.yml` files, change:
+```yaml
+- type: self_check_input
+  engine: openai
+  model: gpt-4o-mini
+```
+to:
+```yaml
+- type: self_check_input
+  engine: openai
+  model: ollama/llama3.2:3b
+  parameters:
+    base_url: "http://ollama:11434/v1"
+```
+
+Then restart NeMo: `docker compose restart nemo`
+
+Ollama + Llama 3.2 3B is pre-installed (see `scripts/init-ollama.sh`). Prompt tuning may be needed as 3B accuracy is lower than gpt-4o-mini. See [ADR-003](docs/decisions/003-local-judge-ollama.md).
 
 ---
 
@@ -199,9 +224,14 @@ docker compose restart litellm
 
 ### NeMo is not blocking topics
 
-NeMo uses a local LLM (Llama 3.2 3B) as a semantic judge. It can take 5–30 seconds per request. Check NeMo logs:
+NeMo uses `self_check_input` with an LLM judge (gpt-4o-mini by default). Check NeMo logs:
 ```bash
 docker compose logs nemo --follow
+```
+
+If using Ollama as judge, requests can take 5–30 seconds on CPU. Check that the model is pulled:
+```bash
+docker exec -it llm-control-plane-ollama-1 ollama list
 ```
 
 ### "MARKETING_KEY not set" when running tests

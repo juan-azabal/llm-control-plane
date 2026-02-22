@@ -24,7 +24,8 @@ How to know what's happening inside the control plane.
 | Off-topic blocked (support) | Same | Track which topics are most often blocked. |
 | Jailbreak detected | `self_check_input` fires, rail activated | Alert security; track attempts over time for patterns. |
 | NeMo unavailable (fail-open) | `WARNING: NeMo unavailable, fail-open` | **P1 alert.** Page on-call. Check NeMo container health. |
-| NeMo slow (>10s) | Latency spike in LiteLLM response time | Check Ollama resource utilization; consider model upgrade or GPU. |
+| NeMo slow (>10s) | Latency spike in LiteLLM response time | Check judge model; gpt-4o-mini should be <2s, Ollama 3B on CPU can spike to 30s. |
+| Output rail triggered (deferred) | Not yet active | Will log when output rails are enabled in v2. |
 
 ---
 
@@ -66,8 +67,9 @@ Recommended fields for each guardrail event:
 
 ### Performance Metrics
 - **P50/P95/P99 latency per tenant** — detect NeMo slowness
-- **NeMo response time** — Ollama inference latency
+- **NeMo response time** — judge model inference latency (target: <2s with gpt-4o-mini, <10s with Ollama 3B CPU, <1s with GPU)
 - **Database connection pool saturation** — Postgres under LiteLLM load
+- **gpt-4o-mini judge cost** — double-API-call cost while judge is cloud-based (MVP); track until switched to Ollama
 
 ---
 
@@ -84,7 +86,8 @@ Recommended fields for each guardrail event:
 2. `docker compose logs nemo --tail=50` — check for OOM or crash
 3. `docker compose restart nemo` — restart if crashed
 4. Verify recovery: `curl http://localhost:8000/v1/rails/configs`
-5. Verify Ollama is healthy: `curl http://localhost:11434/api/tags`
+5. If using Ollama as judge: `docker exec -it llm-control-plane-ollama-1 ollama list` — check model is loaded
+6. If using gpt-4o-mini as judge: verify OPENAI_API_KEY is set and valid
 
 **Escalation:** If NeMo doesn't recover in 10 minutes, page the platform team.
 
@@ -112,9 +115,18 @@ Recommended fields for each guardrail event:
 
 ## Current Observability Gaps (To Do)
 
+**MVP status:** Logs go to Docker stdout. All structured observability below is deferred.
+
 - [ ] Structured JSON logging for all guardrail events
-- [ ] Metrics export to Prometheus (LiteLLM has built-in Prometheus support)
+- [ ] Metrics export to Prometheus (LiteLLM has built-in Prometheus support via `/metrics`)
 - [ ] Grafana dashboard for spend, block rates, latency
 - [ ] PagerDuty integration for NeMo-down alert
 - [ ] Slack webhook for budget threshold alerts
 - [ ] Distributed tracing (OpenTelemetry) for end-to-end request tracing
+- [ ] gpt-4o-mini judge cost tracking (double-call cost during MVP phase)
+
+**What works today (MVP):** All guardrail decisions are logged to Docker stdout via `verbose_proxy_logger`. To monitor in real time:
+```bash
+docker compose logs litellm --follow | grep -E "SecretsDetector|PIIDetector|NemoGuardrailBridge"
+docker compose logs nemo --follow
+```

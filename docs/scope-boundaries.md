@@ -11,7 +11,7 @@ What this system is and is not responsible for.
 - **PII handling** — per-tenant strip/warn/block for emails, phone numbers, SSNs in prompts
 - **Topic control** — semantic block-list and allow-list enforcement per tenant
 - **Jailbreak detection** — structural manipulation attempt detection via LLM judge
-- **Output safety** — checking LLM responses for policy violations before returning to client
+- **Output safety** — checking LLM responses for policy violations before returning to client *(deferred to v2 — input rails only are active in MVP)*
 - **Budget enforcement** — per-team dollar caps with automatic blocking at hard limits
 - **Audit logging** — metadata-only event logs (no prompt/response content in production)
 - **Tenant isolation** — virtual keys ensure team A cannot use team B's budget or see team B's config
