@@ -1,0 +1,24 @@
+# Support Tenant — NeMo Guardrails Configuration
+#
+# Risk profile: HIGHEST risk. Customer-facing (indirectly).
+# Strategy: Allow-list topics + LLM jailbreak judge (self_check_input).
+#
+# Note: Output rails (self_check_output, self_check_facts) deferred for E2E validation.
+# The allow-list + self_check_input combination is the critical safety layer.
+#
+# ADR-006: Allow-list mode — support scope is narrow and well-defined.
+# ADR-008: LLM jailbreak judge — customers can craft prompts via agents.
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o-mini
+
+  - type: self_check_input
+    engine: openai
+    model: gpt-4o-mini
+
+rails:
+  input:
+    flows:
+      - self check input

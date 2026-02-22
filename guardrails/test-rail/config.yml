@@ -1,0 +1,22 @@
+# Test rail configuration
+#
+# A minimal NeMo Guardrails config to verify the LiteLLM ↔ NeMo integration.
+# Uses Ollama (local) as the judge model.
+#
+# This config blocks requests about "internal secrets" as a simple test case.
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o-mini
+
+  - type: self_check_input
+    engine: openai
+    model: ollama/llama3.2:3b
+    parameters:
+      api_base: http://ollama:11434/v1
+
+rails:
+  input:
+    flows:
+      - self check input

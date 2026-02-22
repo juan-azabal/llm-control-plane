@@ -1,0 +1,22 @@
+# Marketing Tenant — NeMo Guardrails Configuration
+#
+# Strategy: self_check_input only. The custom prompt embeds topic restrictions.
+# No Colang flows as input rails (they don't work as semantic evaluators in server mode).
+# The Colang file (config.co) is kept for reference but not loaded as rails.
+#
+# ADR-006: block-list mode — marketing use cases are broad, can't enumerate all valid topics.
+# ADR-008: self_check_input acts as jailbreak + topic judge.
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o-mini
+
+  - type: self_check_input
+    engine: openai
+    model: gpt-4o-mini
+
+rails:
+  input:
+    flows:
+      - self check input
